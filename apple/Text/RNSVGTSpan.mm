@@ -157,14 +157,11 @@ using namespace facebook::react;
         NSUInteger count = [emoji count];
         CGFloat fontSize = [gc getFontSize];
         for (NSUInteger i = 0; i < count; i++) {
-          RNSVGPlatformView *emojiLabel = [emoji objectAtIndex:i];
+          NSAttributedString *attrStr = [emoji objectAtIndex:i];
           NSValue *transformValue = [emojiTransform objectAtIndex:i];
           CGAffineTransform transform = [transformValue CGAffineTransformValue];
-          CGContextConcatCTM(context, transform);
-          CGContextTranslateCTM(context, 0, -fontSize);
-          [emojiLabel.layer renderInContext:context];
-          CGContextTranslateCTM(context, 0, fontSize);
-          CGContextConcatCTM(context, CGAffineTransformInvert(transform));
+
+          [self drawEmoji:attrStr transform:transform context:context fontSize:fontSize];
         }
       }
       [self renderPathTo:context rect:rect];
@@ -1042,34 +1039,16 @@ using namespace facebook::react;
       CGFloat width = box.size.width;
 
       if (width == 0) { // Render unicode emoji
-        RNSVGTextView *emojiLabel = [[RNSVGTextView alloc] init];
         CFIndex startIndex = indices[g];
         long len = MAX(1, endIndex - startIndex);
         NSRange range = NSMakeRange(startIndex, len);
         NSString *currChars = [str substringWithRange:range];
-#if TARGET_OS_OSX
-        emojiLabel.string = currChars;
-#else
-        emojiLabel.text = currChars;
-        emojiLabel.opaque = NO;
-#endif // TARGET_OS_OSX
-        emojiLabel.backgroundColor = RNSVGColor.clearColor;
-        UIFont *customFont = [UIFont systemFontOfSize:fontSize];
-
-        CGSize measuredSize = [currChars sizeWithAttributes:@{NSFontAttributeName : customFont}];
-        emojiLabel.font = customFont;
-        CGFloat width = ceil(measuredSize.width);
-        CGFloat height = ceil(measuredSize.height);
-        CGRect bounds = CGRectMake(0, 0, width, height);
-        emojiLabel.frame = bounds;
-
-        CGContextConcatCTM(context, transform);
-        CGContextTranslateCTM(context, 0, -fontSize);
-        [emojiLabel.layer renderInContext:context];
-        CGContextTranslateCTM(context, 0, fontSize);
-        CGContextConcatCTM(context, CGAffineTransformInvert(transform));
-
-        [emoji addObject:emojiLabel];
+        
+        UIFont *font = [UIFont systemFontOfSize:fontSize];
+        NSDictionary *attrs = @{ NSFontAttributeName: font };
+        NSAttributedString *emojiStr = [[NSAttributedString alloc] initWithString:currChars attributes:attrs];
+        [self drawEmoji:emojiStr transform:transform context:context fontSize:fontSize];
+        [emoji addObject:emojiStr];
         [emojiTransform addObject:[NSValue valueWithCGAffineTransform:transform]];
       } else {
         transform = CGAffineTransformScale(transform, 1.0, -1.0);
@@ -1083,6 +1062,25 @@ using namespace facebook::react;
   CFRelease(line);
 
   return (CGPathRef)CFAutorelease(path);
+}
+
+- (void)drawEmoji:(NSAttributedString *)emojiStr transform:(CGAffineTransform)transform context:(CGContextRef)context fontSize:(CGFloat)fontSize
+{
+  CTLineRef emojiLine = CTLineCreateWithAttributedString((CFAttributedStringRef)emojiStr);
+
+  CGContextSaveGState(context);
+
+  // Flip CGContext vertically to match UIKit coordinates
+  CGRect bounds = CGContextGetClipBoundingBox(context);
+  CGContextTranslateCTM(context, 0, bounds.size.height);
+  CGContextScaleCTM(context, 1.0, -1.0);
+
+  CGContextConcatCTM(context, transform);
+  CGContextTranslateCTM(context, 0, -fontSize);
+
+  CTLineDraw(emojiLine, context);
+  CGContextRestoreGState(context);
+  CFRelease(emojiLine);
 }
 
 + (CGFloat)getTextAnchorOffset:(RNSVGTextAnchor)textAnchor width:(CGFloat)width
