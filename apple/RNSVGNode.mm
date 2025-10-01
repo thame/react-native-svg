@@ -12,6 +12,11 @@
 #import "RNSVGGlyphContext.h"
 #import "RNSVGGroup.h"
 
+#ifdef RCT_NEW_ARCH_ENABLED
+#import <react/renderer/components/rnsvg/ComponentDescriptors.h>
+using namespace facebook::react;
+#endif // RCT_NEW_ARCH_ENABLED
+
 @interface RNSVGNode ()
 @property (nonatomic, readwrite, weak) RNSVGSvgView *svgView;
 @property (nonatomic, readwrite, weak) RNSVGGroup *textRoot;
@@ -264,16 +269,18 @@ CGFloat const RNSVG_DEFAULT_FONT_SIZE = 12;
   _clientRect = clientRect;
 #ifdef RCT_NEW_ARCH_ENABLED
   if (_eventEmitter != nullptr) {
-    facebook::react::LayoutMetrics customLayoutMetrics = _layoutMetrics;
-    customLayoutMetrics.frame.size.width = _clientRect.size.width;
-    customLayoutMetrics.frame.size.height = _clientRect.size.height;
-    customLayoutMetrics.frame.origin.x = _clientRect.origin.x;
-    customLayoutMetrics.frame.origin.y = _clientRect.origin.y;
-    _eventEmitter->onLayout(customLayoutMetrics);
+    static_cast<const RNSVGGroupEventEmitter &>(*_eventEmitter)
+      .onSvgLayout(
+        {.layout = {
+            .x = static_cast<int>(_clientRect.origin.x),
+            .y = static_cast<int>(_clientRect.origin.y),
+            .width = static_cast<int>(_clientRect.size.width),
+            .height = static_cast<int>(_clientRect.size.height)
+        }});
   }
 #else
-  if (self.onLayout) {
-    self.onLayout(@{
+  if (self.onSvgLayout) {
+    self.onSvgLayout(@{
       @"layout" : @{
         @"x" : @(_clientRect.origin.x),
         @"y" : @(_clientRect.origin.y),
@@ -478,11 +485,19 @@ CGFloat const RNSVG_DEFAULT_FONT_SIZE = 12;
 
 - (CGFloat)relativeOnWidth:(RNSVGLength *)length
 {
+  if (length.unit == SVG_LENGTHTYPE_PERCENTAGE && self.svgView.vbWidth != 0) {
+    return [self relativeOn:length relative:self.svgView.vbWidth];
+  }
+
   return [self relativeOn:length relative:[self getCanvasWidth]];
 }
 
 - (CGFloat)relativeOnHeight:(RNSVGLength *)length
 {
+  if (length.unit == SVG_LENGTHTYPE_PERCENTAGE && self.svgView.vbHeight != 0) {
+    return [self relativeOn:length relative:self.svgView.vbHeight];
+  }
+
   return [self relativeOn:length relative:[self getCanvasHeight]];
 }
 
@@ -633,7 +648,7 @@ CGFloat const RNSVG_DEFAULT_FONT_SIZE = 12;
 
   _name = nil;
   _display = nil;
-  _opacity = 0;
+  _opacity = 1;
   _clipRule = kRNSVGCGFCRuleEvenodd;
   _clipPath = nil;
   _mask = nil;
@@ -660,7 +675,7 @@ CGFloat const RNSVG_DEFAULT_FONT_SIZE = 12;
   _fillBounds = CGRectZero;
   _strokeBounds = CGRectZero;
   _markerBounds = CGRectZero;
-  _onLayout = nil;
+  _onSvgLayout = nil;
 
   _svgView = nil;
   _textRoot = nil;
